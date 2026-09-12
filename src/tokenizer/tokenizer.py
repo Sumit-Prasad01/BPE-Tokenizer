@@ -54,6 +54,15 @@ class Tokenizer:
         # Internal word BPE cache for speed
         self._cache: dict[str, tuple[str, ...]] = {}
 
+        # Custom from-scratch C++ BPE Kernel acceleration
+        self._fast_kernel = None
+        try:
+            from src.csrc import HAS_FAST_BPE, BPEKernel
+            if HAS_FAST_BPE and BPEKernel:
+                self._fast_kernel = BPEKernel(self.merges, self.vocab, self.byte_encoder)
+        except Exception as e:
+            logger.debug(f"Custom C++ BPE kernel not active: {e}")
+
     def _build_special_tokens_regex(self) -> None:
         """Builds a regex pattern to safely identify special tokens."""
         if self.special_tokens_list:
@@ -183,13 +192,17 @@ class Tokenizer:
 
     def _encode_ordinary_text(self, text: str, token_ids: list[int]) -> None:
         """Pre-tokenizes and encodes a non-special text segment."""
-        # Find regex matches
         matches = self.pre_tokenizer.split_text(text)
+        if self._fast_kernel:
+            # High-performance from-scratch C++ BPE Kernel
+            fast_ids = self._fast_kernel.encode_words(matches)
+            token_ids.extend(fast_ids)
+            return
+
+        # Pure Python fallback
         for match in matches:
-            # Convert UTF-8 bytes to mapped Unicode string
             raw_bytes = match.encode("utf-8")
             mapped_str = "".join(self.byte_encoder[b] for b in raw_bytes)
-            # Apply BPE merges
             bpe_subwords = self._bpe(mapped_str)
             for subword in bpe_subwords:
                 token_ids.append(self.vocab[subword])

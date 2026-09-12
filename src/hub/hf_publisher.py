@@ -33,7 +33,7 @@ class HFPublisher:
             "Trained on a 250 MB balanced multi-domain corpus:\n"
             "- **FineWeb (70% / 175 MB)**: High-quality filtered web prose\n"
             "- **WikiText-103 (10% / 25 MB)**: Encyclopedic, knowledge-dense prose\n"
-            "- **The Stack / GitHub Code (10% / 25 MB)**: Python, C++, JS, SQL syntax\n"
+            "- **CodeSearchNet (10% / 25 MB)**: Multi-language code and comments (Python, Java, Go, JS, PHP, Ruby)\n"
             "- **ArXiv / Math (5% / 12.5 MB)**: Scientific LaTeX and numerical notations\n"
             "- **OpenWebText (5% / 12.5 MB)**: Conversational and forum discourse"
         )

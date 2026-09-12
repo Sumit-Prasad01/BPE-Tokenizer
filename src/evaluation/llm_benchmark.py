@@ -23,17 +23,11 @@ class CausalSelfAttention(nn.Module):
         self.n_head = n_head
         self.n_embd = n_embd
         self.head_dim = n_embd // n_head
+        self.dropout = dropout
 
         self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.c_proj = nn.Linear(n_embd, n_embd, bias=False)
-        self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
-
-        # Causal mask
-        self.register_buffer(
-            "bias",
-            torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size),
-        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.size()
@@ -42,13 +36,23 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
-        att = F.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-        y = att @ v
+        if hasattr(F, "scaled_dot_product_attention"):
+            y = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=None,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=True
+            )
+        else:
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            bias = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
+            att = att.masked_fill(bias == 0, float("-inf"))
+            att = F.softmax(att, dim=-1)
+            att = nn.Dropout(self.dropout)(att)
+            y = att @ v
+
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.resid_dropout(self.c_proj(y))
+
 
 
 class MLP(nn.Module):
@@ -137,14 +141,41 @@ class MiniGPT(nn.Module):
 class LMBenchmarkRunner:
     """Trains a mini-transformer to evaluate Validation Loss and Loss Per Byte."""
 
-    def __init__(self, tokenizer: Tokenizer, config: LMEvalConfig | None = None):
+    def __init__(
+        self,
+        tokenizer: Tokenizer,
+        config: LMEvalConfig | None = None,
+        model_dir: str | Path | None = None,
+    ):
         self.tokenizer = tokenizer
         self.config = config or LMEvalConfig()
+        self.model_dir = Path(model_dir) if model_dir else None
 
         if self.config.training.device == "auto":
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = self.config.training.device
+
+    def run_benchmark(
+        self,
+        corpus_path: str | Path | None = None,
+        text_corpus: str | None = None,
+        steps: int | None = None,
+        max_bytes: int = 5_000_000,
+    ) -> dict[str, Any]:
+        """Runs the downstream LM evaluation from a file or string corpus."""
+        if text_corpus is None:
+            if corpus_path and Path(corpus_path).is_file():
+                logger.info(f"📖 Reading corpus for LM evaluation: {Path(corpus_path).resolve()}...")
+                with open(corpus_path, "r", encoding="utf-8", errors="replace") as f:
+                    text_corpus = f.read(max_bytes)
+            else:
+                from src.evaluation.domain_slices import get_standard_domain_slices
+                logger.info("Using standard multi-domain slices for LM benchmark...")
+                slices = get_standard_domain_slices()
+                text_corpus = "\n\n".join(slices.values()) * 5
+
+        return self.train_and_evaluate(text_corpus=text_corpus, max_steps=steps)
 
     def train_and_evaluate(
         self,
@@ -158,10 +189,37 @@ class LMBenchmarkRunner:
             f"on {self.device.upper()} for {steps} steps..."
         )
 
-        # 1. Tokenize corpus
+        # 1. Tokenize corpus (try fast compiled backend first for 150x speedup)
         t0 = time.perf_counter()
-        token_ids = self.tokenizer.encode(text_corpus)
+        token_ids = None
+
+        candidate_paths = []
+        if self.model_dir:
+            candidate_paths.append(self.model_dir / "tokenizer.json")
+        candidate_paths.extend([
+            Path(self.tokenizer.name) / "tokenizer.json",
+            Path("experiments/runs") / self.tokenizer.name / "tokenizer.json",
+        ])
+
+        for c_path in candidate_paths:
+            if c_path.is_file():
+                try:
+                    from tokenizers import Tokenizer as HFTokenizer
+                    fast_tok = HFTokenizer.from_file(str(c_path))
+                    logger.info(f"⚡ Using fast compiled tokenizer backend from {c_path.name}...")
+                    token_ids = fast_tok.encode(text_corpus).ids
+                    break
+                except Exception as exc:
+                    logger.debug(f"Could not use fast tokenizer: {exc}")
+
+        if token_ids is None:
+            logger.info("⏳ Tokenizing text corpus...")
+            token_ids = self.tokenizer.encode(text_corpus)
+
         raw_bytes = len(text_corpus.encode("utf-8"))
+        num_tokens = len(token_ids)
+        tok_time = time.perf_counter() - t0
+        logger.info(f"✨ Tokenized {raw_bytes:,} bytes into {num_tokens:,} tokens in {tok_time:.2f}s")
         num_tokens = len(token_ids)
 
         if num_tokens < self.config.model.block_size * 2:
@@ -174,8 +232,8 @@ class LMBenchmarkRunner:
         train_ids = token_ids[:split_idx]
         val_ids = token_ids[split_idx:]
 
-        train_tensor = torch.tensor(train_ids, dtype=torch.long)
-        val_tensor = torch.tensor(val_ids, dtype=torch.long)
+        train_tensor = torch.tensor(train_ids, dtype=torch.long, device=self.device)
+        val_tensor = torch.tensor(val_ids, dtype=torch.long, device=self.device)
 
         # 3. Initialize MiniGPT
         model = MiniGPT(
@@ -194,22 +252,26 @@ class LMBenchmarkRunner:
             weight_decay=self.config.training.weight_decay,
         )
 
+        use_amp = (self.device == "cuda")
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+
         block_size = self.config.model.block_size
         batch_size = self.config.training.batch_size
 
         def get_batch(data: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-            ix = torch.randint(len(data) - block_size, (batch_size,))
-            x = torch.stack([data[i : i + block_size] for i in ix]).to(self.device)
-            y = torch.stack([data[i + 1 : i + 1 + block_size] for i in ix]).to(self.device)
+            ix = torch.randint(len(data) - block_size, (batch_size,), device=self.device)
+            x = torch.stack([data[i : i + block_size] for i in ix])
+            y = torch.stack([data[i + 1 : i + 1 + block_size] for i in ix])
             return x, y
 
         @torch.no_grad()
         def estimate_loss(eval_iters: int = 20) -> float:
             model.eval()
-            losses = torch.zeros(eval_iters)
+            losses = torch.zeros(eval_iters, device=self.device)
             for k in range(eval_iters):
                 x, y = get_batch(val_tensor)
-                _, loss = model(x, y)
+                with torch.amp.autocast(device_type=self.device, dtype=torch.float16, enabled=use_amp):
+                    _, loss = model(x, y)
                 losses[k] = loss.item()
             model.train()
             return float(losses.mean().item())
@@ -219,10 +281,13 @@ class LMBenchmarkRunner:
         for step in range(1, steps + 1):
             xb, yb = get_batch(train_tensor)
             optimizer.zero_grad(set_to_none=True)
-            _, loss = model(xb, yb)
-            loss.backward()
+            with torch.amp.autocast(device_type=self.device, dtype=torch.float16, enabled=use_amp):
+                _, loss = model(xb, yb)
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
 
             if step % self.config.training.eval_interval == 0 or step == steps:
                 val_loss = estimate_loss(self.config.training.eval_steps)

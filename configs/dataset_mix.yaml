@@ -28,12 +28,12 @@ sources:
 
   code:
     enabled: true
-    hf_dataset: "bigcode/the-stack-smol"
-    subset: "data/python"
+    hf_dataset: "sentence-transformers/codesearchnet"
+    subset: null
     split: "train"
     target_mb: 25.0
-    text_column: "content"
-    description: "Programming syntax, identifiers, operators, and indentation (10%)"
+    text_column: "code"
+    description: "Multi-language programming syntax, identifiers, operators, and indentation (CodeSearchNet 10%)"
 
   technical:
     enabled: true

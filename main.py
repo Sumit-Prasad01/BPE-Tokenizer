@@ -26,7 +26,9 @@ from utils.helpers import load_json, load_yaml, save_json
 from utils.logger import logger
 
 HF_TOKEN = os.getenv("HF_TOKEN")
-os.environ["HF_TOKEN"] = HF_TOKEN
+if HF_TOKEN:
+    os.environ["HF_TOKEN"] = HF_TOKEN
+
 
 try:
     from rich.console import Console
@@ -155,15 +157,35 @@ def cmd_run_lm_benchmark(args: argparse.Namespace) -> int:
         logger.warning(f"Corpus file not found at {corpus_path}. Looking for training corpus...")
         corpus_path = "data/processed/train_corpus_250mb.txt"
 
-    runner = LMBenchmarkRunner(tokenizer=tokenizer, config=lm_config)
+    runner = LMBenchmarkRunner(tokenizer=tokenizer, config=lm_config, model_dir=model_dir)
     steps = args.steps or lm_config.training.max_steps
     results = runner.run_benchmark(corpus_path=corpus_path, steps=steps)
 
     out_file = Path(args.output) if args.output else model_dir / "lm_eval.json"
     save_json(results, out_file, indent=2)
 
-    # Update leaderboard
+    # Update report.md with LM evaluation metrics
     tracker = ExperimentTracker()
+    metrics_file = model_dir / "metrics.json"
+    metrics = load_json(metrics_file) if metrics_file.is_file() else None
+    report_content = tracker.generate_run_report(model_dir.name, metrics=metrics, lm_results=results)
+    with open(model_dir / "report.md", "w", encoding="utf-8") as f:
+        f.write(report_content)
+
+    # Generate LM BPC curve plot if loss history exists
+    try:
+        from src.evaluation.visualizer import plot_downstream_lm_bpc_curves
+        if "loss_history" in results and results["loss_history"]:
+            vis_dir = model_dir / "visuals"
+            vis_dir.mkdir(parents=True, exist_ok=True)
+            plot_downstream_lm_bpc_curves(
+                {tokenizer.name: results["loss_history"]},
+                vis_dir / "downstream_lm_bpc_curves.png",
+            )
+    except Exception as e:
+        logger.warning(f"Could not generate LM BPC curve plot: {e}")
+
+    # Rebuild central leaderboard
     tracker.scan_and_rebuild_leaderboard()
 
     logger.info(
@@ -263,8 +285,9 @@ def cmd_run_experiment(args: argparse.Namespace) -> int:
         tokenizer = Tokenizer(vocab=vocab, merges=merges, name=exp_id)
 
         # Benchmark
+        eval_path = "data/processed/eval_corpus_heldout.txt" if Path("data/processed/eval_corpus_heldout.txt").is_file() else None
         benchmark_runner = BenchmarkRunner(tokenizer)
-        metrics = benchmark_runner.run_benchmark()
+        metrics = benchmark_runner.run_benchmark(custom_corpus_path=eval_path)
 
         # Save artifacts
         tracker.save_run_artifacts(
