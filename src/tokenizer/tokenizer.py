@@ -262,3 +262,14 @@ class Tokenizer:
     def decode_batch(self, batch_tokens: list[list[int]], errors: str = "replace") -> list[str]:
         """Decodes a batch of token ID sequences."""
         return [self.decode(tokens, errors=errors) for tokens in batch_tokens]
+
+    def save_pretrained(self, output_dir: str | Path) -> dict[str, Path]:
+        """Saves tokenizer artifacts to directory."""
+        from src.tokenizer.serializer import TokenizerSerializer
+        return TokenizerSerializer.save_pretrained(self, output_dir)
+
+    @classmethod
+    def from_pretrained(cls, model_dir: str | Path) -> "Tokenizer":
+        """Loads tokenizer from saved directory."""
+        from src.tokenizer.serializer import TokenizerSerializer
+        return TokenizerSerializer.from_pretrained(model_dir)

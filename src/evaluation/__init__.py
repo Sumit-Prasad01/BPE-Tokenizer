@@ -12,6 +12,16 @@ from src.evaluation.metrics import (
 )
 from src.evaluation.benchmarks import BenchmarkRunner
 from src.evaluation.llm_benchmark import LMBenchmarkRunner, MiniGPT
+from src.evaluation.visualizer import (
+    plot_zipf_law,
+    plot_merge_frequency_decay,
+    plot_domain_compression,
+    plot_domain_fertility,
+    plot_subword_length_distribution,
+    plot_vocab_scaling_tradeoff,
+    plot_downstream_lm_bpc_curves,
+    generate_all_visualizations,
+)
 
 __all__ = [
     "get_standard_domain_slices",
@@ -25,4 +35,12 @@ __all__ = [
     "BenchmarkRunner",
     "LMBenchmarkRunner",
     "MiniGPT",
+    "plot_zipf_law",
+    "plot_merge_frequency_decay",
+    "plot_domain_compression",
+    "plot_domain_fertility",
+    "plot_subword_length_distribution",
+    "plot_vocab_scaling_tradeoff",
+    "plot_downstream_lm_bpc_curves",
+    "generate_all_visualizations",
 ]

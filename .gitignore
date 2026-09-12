@@ -142,3 +142,5 @@ logs/
 
 general_purpose_tokenizer_dataset_plan.md
 implementation_plan.md
+experiments/
+data/
