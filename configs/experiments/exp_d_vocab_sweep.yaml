@@ -1,0 +1,10 @@
+experiment_sweep:
+  id: "exp_d_vocab_sweep"
+  name: "Experiment D - Vocabulary Size Sweep (16k / 32k / 50k)"
+  description: "Study compression ratio, fertility, and downstream loss-per-byte trade-offs across 16k, 32k, and 50k vocabularies on the 250MB mixed corpus."
+  dataset_mix_config: "configs/dataset_mix.yaml"
+  vocab_sizes:
+    - 16000
+    - 32000
+    - 50000
+  min_frequency: 2

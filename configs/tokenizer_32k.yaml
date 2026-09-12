@@ -1,0 +1,17 @@
+tokenizer:
+  name: "general_purpose_bpe_32k"
+  model_type: "byte_level_bpe"
+  vocab_size: 32000
+  min_frequency: 2
+  byte_level: true
+  
+  # GPT-4 pre-tokenization regex pattern
+  # Handles contractions, words with optional leading space, numbers (1-3 digits), symbols, whitespace
+  regex_pattern: "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+  
+  special_tokens:
+    eos_token: "<|endoftext|>"
+    pad_token: "<|pad|>"
+    unk_token: "<|unk|>"
+    bos_token: "<|bos|>"
+    additional_special_tokens: []

@@ -1,0 +1,8 @@
+experiment:
+  id: "exp_c_mixed_32k"
+  name: "Experiment C - Curated Multi-Domain Mix 250MB"
+  description: "Recommended production tokenizer: 250MB mix (FineWeb 70%, Wiki 10%, Code 10%, Math 5%, Web 5%) with 32k vocabulary."
+  vocab_size: 32000
+  min_frequency: 2
+  target_corpus_mb: 250.0
+  dataset_mix_config: "configs/dataset_mix.yaml"

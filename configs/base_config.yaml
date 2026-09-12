@@ -1,0 +1,11 @@
+system:
+  seed: 42
+  num_workers: 4
+  log_level: "INFO"
+
+paths:
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  experiments_dir: "experiments/runs"
+  visuals_dir: "experiments/visuals"
+  logs_dir: "logs"

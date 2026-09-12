@@ -1,0 +1,13 @@
+experiment:
+  id: "exp_a_wikitext_32k"
+  name: "Baseline A - WikiText-103"
+  description: "Controlled baseline using WikiText-103 clean encyclopedic text (~20 MB) with 32k vocabulary."
+  vocab_size: 32000
+  min_frequency: 2
+  target_corpus_mb: 20.0
+  corpus_sources:
+    - name: "wikipedia"
+      hf_dataset: "Salesforce/wikitext"
+      subset: "wikitext-103-raw-v1"
+      target_mb: 20.0
+      text_column: "text"

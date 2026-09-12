@@ -1,0 +1,13 @@
+experiment:
+  id: "exp_b_fineweb_32k"
+  name: "Baseline B - Pure FineWeb 250MB"
+  description: "Recommended general-purpose web baseline using ~250 MB FineWeb sample with 32k vocabulary."
+  vocab_size: 32000
+  min_frequency: 2
+  target_corpus_mb: 250.0
+  corpus_sources:
+    - name: "fineweb"
+      hf_dataset: "HuggingFaceFW/fineweb"
+      subset: "sample-10BT"
+      target_mb: 250.0
+      text_column: "text"
