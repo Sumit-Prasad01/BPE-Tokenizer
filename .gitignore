@@ -140,10 +140,5 @@ cython_debug/
 
 logs/
 
-
-artifacts/
-data/
-
-hf_cache/
 general_purpose_tokenizer_dataset_plan.md
 implementation_plan.md
