@@ -274,4 +274,12 @@ class ExperimentTracker:
                     except Exception as exc:
                         logger.warning(f"Failed to parse run {run_path.name}: {exc}")
 
+        # Also scan reference benchmark files in experiments/
+        for ref_file in sorted(self.base_dir.glob("reference_*.json")):
+            try:
+                metrics = load_json(ref_file)
+                self._record_to_leaderboard(ref_file.stem, metrics, None)
+            except Exception as exc:
+                logger.warning(f"Failed to parse reference file {ref_file.name}: {exc}")
+
         return self.get_leaderboard(), self.render_leaderboard_table()

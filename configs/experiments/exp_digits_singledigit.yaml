@@ -1,0 +1,10 @@
+experiment:
+  id: "exp_digits_singledigit"
+  name: "Track 2 - Numerical Tokenization (Single Digit LLaMA-3 Style)"
+  description: "Track 2 experiment enforcing strict single-digit tokenization ([0-9]) to eliminate arithmetic permutation bias."
+  vocab_size: 32000
+  min_frequency: 2
+  digit_mode: "single"
+  regex_pattern: "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}| ?[^\\s\\p{L}\\p{N}]+[\\r\\n]*|\\s*[\\r\\n]+|\\s+(?!\\S)|\\s+"
+  target_corpus_mb: 250.0
+  dataset_mix_config: "configs/dataset_mix.yaml"

@@ -66,13 +66,15 @@ def cmd_train(args: argparse.Namespace) -> int:
 
     vocab_size = args.vocab_size or tok_config.vocab_size
     min_frequency = args.min_frequency or tok_config.min_frequency
+    digit_mode = getattr(args, "digit_mode", "clustered")
 
-    logger.info(f"🚀 Training BPE Tokenizer (Vocab: {vocab_size:,}, Min Freq: {min_frequency})...")
+    logger.info(f"🚀 Training BPE Tokenizer (Vocab: {vocab_size:,}, Min Freq: {min_frequency}, Digit Mode: {digit_mode})...")
     trainer = BPETrainer(
         vocab_size=vocab_size,
         min_frequency=min_frequency,
         special_tokens=tok_config.special_tokens.all_special_tokens,
         regex_pattern=tok_config.regex_pattern,
+        digit_mode=digit_mode,
     )
 
     vocab, merges, stats = trainer.train_from_file(corpus_path, max_lines=args.max_lines)
@@ -82,6 +84,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         merges=merges,
         special_tokens=tok_config.special_tokens.all_special_tokens,
         regex_pattern=tok_config.regex_pattern,
+        digit_mode=digit_mode,
         name=args.run_name or tok_config.name,
     )
 
@@ -263,26 +266,49 @@ def cmd_run_experiment(args: argparse.Namespace) -> int:
         logger.info(f"🧪 Executing Experiment Recipe: '{exp_name}' (Vocab: {vocab_size:,})...")
 
         # Determine corpus path
-        corpus_path = Path(args.corpus or "data/processed/train_corpus_250mb.txt")
-        if not corpus_path.is_file():
-            # Try to build or check if dataset_mix_config provided
-            mix_cfg = exp_info.get("dataset_mix_config")
-            if mix_cfg and Path(mix_cfg).is_file():
+        mix_cfg = exp_info.get("dataset_mix_config")
+        custom_corpus = None
+        if mix_cfg and Path(mix_cfg).is_file():
+            mix_config = load_dataset_mix_config(mix_cfg)
+            custom_corpus = Path(mix_config.corpus.train_output_path)
+
+        if args.corpus:
+            corpus_path = Path(args.corpus)
+        elif custom_corpus:
+            corpus_path = custom_corpus
+            if not corpus_path.is_file():
                 logger.info(f"Building dataset corpus using mix config '{mix_cfg}'...")
-                mix_config = load_dataset_mix_config(mix_cfg)
                 builder = CorpusBuilder(config=mix_config)
                 built = builder.build_all()
                 corpus_path = Path(built["train_file"])
-            else:
-                logger.error(f"Corpus not found at {corpus_path.resolve()} and no valid dataset config specified.")
-                return 1
+        else:
+            corpus_path = Path("data/processed/train_corpus_250mb.txt")
+
+        if not corpus_path.is_file():
+            logger.error(f"Corpus not found at {corpus_path.resolve()}")
+            return 1
 
         # Train
-        run_id, run_dir = tracker.init_run(exp_name=exp_id, config_dict=recipe)
-        trainer = BPETrainer(vocab_size=vocab_size, min_frequency=min_freq)
-        vocab, merges, stats = trainer.train_from_file(corpus_path)
+        regex_pattern = exp_info.get("regex_pattern")
+        digit_mode = exp_info.get("digit_mode", "clustered")
+        max_lines = getattr(args, "max_lines", None)
 
-        tokenizer = Tokenizer(vocab=vocab, merges=merges, name=exp_id)
+        run_id, run_dir = tracker.init_run(exp_name=exp_id, config_dict=recipe)
+        trainer = BPETrainer(
+            vocab_size=vocab_size,
+            min_frequency=min_freq,
+            regex_pattern=regex_pattern,
+            digit_mode=digit_mode,
+        )
+        vocab, merges, stats = trainer.train_from_file(corpus_path, max_lines=max_lines)
+
+        tokenizer = Tokenizer(
+            vocab=vocab,
+            merges=merges,
+            regex_pattern=regex_pattern,
+            digit_mode=digit_mode,
+            name=exp_id,
+        )
 
         # Benchmark
         eval_path = "data/processed/eval_corpus_heldout.txt" if Path("data/processed/eval_corpus_heldout.txt").is_file() else None
@@ -305,6 +331,9 @@ def cmd_run_experiment(args: argparse.Namespace) -> int:
             merges=merges,
             output_dir=run_dir / "visuals",
         )
+
+        # Rebuild central leaderboard
+        tracker.scan_and_rebuild_leaderboard()
 
         logger.info(f"🎉 Experiment '{exp_name}' finished successfully! (Run ID: {run_id})")
         return 0
@@ -437,6 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_train.add_argument("--eval-corpus", default=None, help="Optional held-out evaluation corpus")
     p_train.add_argument("--vocab-size", type=int, default=None, help="Override vocabulary size")
     p_train.add_argument("--min-frequency", type=int, default=None, help="Override minimum pair frequency")
+    p_train.add_argument("--digit-mode", choices=["clustered", "single"], default="clustered", help="Digit tokenization mode ('clustered' GPT-4 or 'single' LLaMA-3)")
     p_train.add_argument("--max-lines", type=int, default=None, help="Optional limit on lines read for fast testing")
     p_train.add_argument("--run-name", default=None, help="Custom identifier for run")
     p_train.set_defaults(func=cmd_train)
@@ -467,6 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_exp = subparsers.add_parser("run-experiment", help="Execute an end-to-end experiment recipe")
     p_exp.add_argument("--config", required=True, help="Path to experiment recipe YAML")
     p_exp.add_argument("--corpus", default=None, help="Optional explicit corpus path")
+    p_exp.add_argument("--max-lines", type=int, default=None, help="Optional limit on lines read for fast testing")
     p_exp.set_defaults(func=cmd_run_experiment)
 
     # 7. compare-runs

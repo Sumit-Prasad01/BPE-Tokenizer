@@ -1,0 +1,8 @@
+experiment:
+  id: "exp_vocab_16k"
+  name: "Track 1 - Vocabulary Scaling Frontier (16k)"
+  description: "Track 1 experiment evaluating 16,000 vocabulary size on the 250MB curated multi-domain corpus."
+  vocab_size: 16000
+  min_frequency: 2
+  target_corpus_mb: 250.0
+  dataset_mix_config: "configs/dataset_mix.yaml"

@@ -72,6 +72,8 @@ class TokenizerSerializer:
             "bos_token": "<|bos|>",
             "clean_up_tokenization_spaces": False,
             "name": tokenizer.name,
+            "regex_pattern": getattr(tokenizer, "regex_pattern", None),
+            "digit_mode": getattr(tokenizer, "digit_mode", "clustered"),
         }
         save_json(tokenizer_config, config_path, indent=2)
         paths["tokenizer_config"] = config_path
@@ -174,10 +176,21 @@ class TokenizerSerializer:
             s_map = load_json(special_map_path)
             special_tokens = list(s_map.values())
 
+        # Check for tokenizer config (regex_pattern, digit_mode)
+        regex_pattern = None
+        digit_mode = "clustered"
+        config_path = in_dir / "tokenizer_config.json"
+        if config_path.is_file():
+            cfg = load_json(config_path)
+            regex_pattern = cfg.get("regex_pattern")
+            digit_mode = cfg.get("digit_mode", "clustered")
+
         tokenizer = Tokenizer(
             vocab=vocab,
             merges=merges,
             special_tokens=special_tokens,
+            regex_pattern=regex_pattern,
+            digit_mode=digit_mode,
             name=in_dir.name,
         )
         logger.info(

@@ -1,0 +1,8 @@
+experiment:
+  id: "exp_code_heavy_32k"
+  name: "Track 3 - Domain Specialization (Code-Heavy 40%)"
+  description: "Track 3 experiment evaluating code domain specialization with 40% CodeSearchNet, 40% FineWeb, 10% Wiki, 5% Math, 5% Web."
+  vocab_size: 32000
+  min_frequency: 2
+  target_corpus_mb: 250.0
+  dataset_mix_config: "configs/dataset_mix_code_heavy.yaml"

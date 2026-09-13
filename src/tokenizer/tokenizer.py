@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+import random
 from typing import Any
 import regex as re
 
@@ -20,6 +21,7 @@ class Tokenizer:
         merges: list[tuple[str, str]],
         special_tokens: list[str] | None = None,
         regex_pattern: str | None = None,
+        digit_mode: str = "clustered",
         name: str = "bpe_tokenizer",
     ):
         self.name = name
@@ -32,7 +34,9 @@ class Tokenizer:
             "<|bos|>",
             "<|eos|>",
         ]
-        self.regex_pattern = regex_pattern or DEFAULT_GPT4_REGEX
+        self.digit_mode = digit_mode
+        self.pre_tokenizer = RegexPreTokenizer(pattern=regex_pattern, digit_mode=digit_mode)
+        self.regex_pattern = self.pre_tokenizer.pattern_str
 
         # Fast lookup tables
         self.decoder = {v: k for k, v in self.vocab.items()}
@@ -43,9 +47,6 @@ class Tokenizer:
         # Byte bijection mappings
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = unicode_to_bytes()
-
-        # Regex pre-tokenizer
-        self.pre_tokenizer = RegexPreTokenizer(self.regex_pattern)
 
         # Special tokens setup
         self.special_tokens_set = set(self.special_tokens_list)
@@ -87,9 +88,9 @@ class Tokenizer:
         """Returns the set of adjacent symbol pairs in a word tuple."""
         return set(zip(word, word[1:]))
 
-    def _bpe(self, token_str: str) -> tuple[str, ...]:
-        """Applies greedy BPE merge rules to a mapped byte-string chunk."""
-        if token_str in self._cache:
+    def _bpe(self, token_str: str, p_dropout: float = 0.0) -> tuple[str, ...]:
+        """Applies BPE merge rules to a mapped byte-string chunk with optional BPE-dropout."""
+        if p_dropout == 0.0 and token_str in self._cache:
             return self._cache[token_str]
 
         word: tuple[str, ...] = tuple(token_str)
@@ -100,18 +101,29 @@ class Tokenizer:
 
         while True:
             # Find candidate pairs present in our learned merge rules
-            min_rank = float("inf")
-            best_pair = None
-
+            candidates = []
             for pair in pairs:
                 rank = self.bpe_ranks.get(pair)
-                if rank is not None and rank < min_rank:
-                    min_rank = rank
-                    best_pair = pair
+                if rank is not None:
+                    candidates.append((rank, pair))
 
-            # If no more pairs can be merged, break
-            if best_pair is None:
+            if not candidates:
                 break
+
+            # Sort candidate pairs by rank (lowest rank = highest priority)
+            candidates.sort(key=lambda x: x[0])
+
+            best_pair = None
+            if p_dropout > 0.0:
+                for rank, pair in candidates:
+                    if random.random() >= p_dropout:
+                        best_pair = pair
+                        break
+                if best_pair is None:
+                    # All candidates were dropped in this iteration
+                    break
+            else:
+                best_pair = candidates[0][1]
 
             first, second = best_pair
             new_word: list[str] = []
@@ -131,13 +143,15 @@ class Tokenizer:
                 break
             pairs = self._get_pairs(word)
 
-        self._cache[token_str] = word
+        if p_dropout == 0.0:
+            self._cache[token_str] = word
         return word
 
     def encode(
         self,
         text: str,
         allowed_special: set[str] | str | None = None,
+        p_dropout: float = 0.0,
     ) -> list[int]:
         """Encodes raw text into a list of integer token IDs.
         
@@ -145,6 +159,8 @@ class Tokenizer:
             text: Input string to encode.
             allowed_special: 'all', None, or a set of allowed special token strings.
                              If a special token is observed and not allowed, raises error.
+            p_dropout: Subword regularization probability (BPE-Dropout).
+                       0.0 is standard deterministic greedy BPE.
                              
         Returns:
             List of integer token IDs.
@@ -176,7 +192,7 @@ class Tokenizer:
                             f"Encountered disallowed special token in text: '{part}'"
                         )
                 else:
-                    self._encode_ordinary_text(part, token_ids)
+                    self._encode_ordinary_text(part, token_ids, p_dropout=p_dropout)
         else:
             # Check for disallowed special tokens if text contains them
             if self.special_pattern and not allowed_set:
@@ -186,24 +202,24 @@ class Tokenizer:
                         f"Encountered special token '{matched.group()}' but allowed_special is empty. "
                         "Set allowed_special='all' to allow special tokens."
                     )
-            self._encode_ordinary_text(text, token_ids)
+            self._encode_ordinary_text(text, token_ids, p_dropout=p_dropout)
 
         return token_ids
 
-    def _encode_ordinary_text(self, text: str, token_ids: list[int]) -> None:
+    def _encode_ordinary_text(self, text: str, token_ids: list[int], p_dropout: float = 0.0) -> None:
         """Pre-tokenizes and encodes a non-special text segment."""
         matches = self.pre_tokenizer.split_text(text)
-        if self._fast_kernel:
+        if self._fast_kernel and p_dropout == 0.0:
             # High-performance from-scratch C++ BPE Kernel
             fast_ids = self._fast_kernel.encode_words(matches)
             token_ids.extend(fast_ids)
             return
 
-        # Pure Python fallback
+        # Pure Python fallback with BPE-dropout support
         for match in matches:
             raw_bytes = match.encode("utf-8")
             mapped_str = "".join(self.byte_encoder[b] for b in raw_bytes)
-            bpe_subwords = self._bpe(mapped_str)
+            bpe_subwords = self._bpe(mapped_str, p_dropout=p_dropout)
             for subword in bpe_subwords:
                 token_ids.append(self.vocab[subword])
 
@@ -237,9 +253,14 @@ class Tokenizer:
 
         return "".join(result_chunks)
 
-    def tokenize(self, text: str, allowed_special: set[str] | str | None = None) -> list[str]:
+    def tokenize(
+        self,
+        text: str,
+        allowed_special: set[str] | str | None = None,
+        p_dropout: float = 0.0,
+    ) -> list[str]:
         """Returns the list of subword strings for a given text."""
-        ids = self.encode(text, allowed_special=allowed_special)
+        ids = self.encode(text, allowed_special=allowed_special, p_dropout=p_dropout)
         return [self.decoder[i] for i in ids]
 
     def encode_batch(
@@ -250,9 +271,10 @@ class Tokenizer:
         truncation: bool = False,
         pad_token_id: int | None = None,
         allowed_special: set[str] | str | None = None,
+        p_dropout: float = 0.0,
     ) -> list[list[int]]:
         """Encodes a batch of strings with optional padding and truncation."""
-        batch_ids = [self.encode(text, allowed_special=allowed_special) for text in texts]
+        batch_ids = [self.encode(text, allowed_special=allowed_special, p_dropout=p_dropout) for text in texts]
 
         if truncation and max_length is not None:
             batch_ids = [seq[:max_length] for seq in batch_ids]

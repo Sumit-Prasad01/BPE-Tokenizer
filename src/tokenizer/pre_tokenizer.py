@@ -11,13 +11,20 @@ from utils.logger import logger
 
 
 DEFAULT_GPT4_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
+LLAMA3_SINGLE_DIGIT_REGEX = r"""(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
 
 
 class RegexPreTokenizer:
     """Pre-tokenizes text using Unicode regular expressions and maps to byte tokens."""
 
-    def __init__(self, pattern: str | None = None):
-        self.pattern_str = pattern or DEFAULT_GPT4_REGEX
+    def __init__(self, pattern: str | None = None, digit_mode: str = "clustered"):
+        self.digit_mode = digit_mode
+        if pattern:
+            self.pattern_str = pattern
+        elif digit_mode == "single":
+            self.pattern_str = LLAMA3_SINGLE_DIGIT_REGEX
+        else:
+            self.pattern_str = DEFAULT_GPT4_REGEX
         self.compiled_regex = re.compile(self.pattern_str)
         self.byte_encoder = bytes_to_unicode()
 

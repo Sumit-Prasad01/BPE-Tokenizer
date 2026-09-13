@@ -1,0 +1,63 @@
+corpus:
+  name: "gpt_code_heavy_250mb"
+  total_target_mb: 250.0
+  train_output_path: "data/processed/train_corpus_code_heavy_250mb.txt"
+  eval_output_path: "data/processed/eval_corpus_heldout.txt"
+  eval_target_mb: 5.0
+  seed: 42
+  shuffle_buffer_size: 50000
+
+sources:
+  fineweb:
+    enabled: true
+    hf_dataset: "HuggingFaceFW/fineweb"
+    subset: "sample-10BT"
+    split: "train"
+    target_mb: 100.0
+    text_column: "text"
+    description: "General web prose, diverse writing styles, punctuation, and rare words (40%)"
+
+  wikipedia:
+    enabled: true
+    hf_dataset: "Salesforce/wikitext"
+    subset: "wikitext-103-raw-v1"
+    split: "train"
+    target_mb: 25.0
+    text_column: "text"
+    description: "Clean encyclopedic prose, proper nouns, and formal writing (10%)"
+
+  code:
+    enabled: true
+    hf_dataset: "sentence-transformers/codesearchnet"
+    subset: null
+    split: "train"
+    target_mb: 100.0
+    text_column: "code"
+    description: "Multi-language programming syntax, identifiers, operators, and indentation (CodeSearchNet 40%)"
+
+  technical:
+    enabled: true
+    hf_dataset: "open-web-math/open-web-math"
+    subset: null
+    split: "train"
+    target_mb: 12.5
+    text_column: "text"
+    description: "Mathematical notation, scientific formulations, and LaTeX (5%)"
+
+  openwebtext:
+    enabled: true
+    hf_dataset: "Skylion007/openwebtext"
+    subset: null
+    split: "train"
+    target_mb: 12.5
+    text_column: "text"
+    description: "Broad web text and conversational patterns (5%)"
+
+preprocessing:
+  preserve_casing: true
+  preserve_whitespace: true
+  preserve_numbers: true
+  preserve_urls: true
+  remove_null_bytes: true
+  normalize_newlines: true
+  min_document_length_chars: 50

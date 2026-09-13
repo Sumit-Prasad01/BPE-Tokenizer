@@ -23,9 +23,11 @@ class BPETrainer:
         min_frequency: int = 2,
         special_tokens: list[str] | None = None,
         regex_pattern: str | None = None,
+        digit_mode: str = "clustered",
     ):
         self.vocab_size = vocab_size
         self.min_frequency = min_frequency
+        self.digit_mode = digit_mode
         self.special_tokens = special_tokens or [
             "<|endoftext|>",
             "<|pad|>",
@@ -33,7 +35,8 @@ class BPETrainer:
             "<|bos|>",
             "<|eos|>",
         ]
-        self.pre_tokenizer = RegexPreTokenizer(regex_pattern)
+        self.pre_tokenizer = RegexPreTokenizer(pattern=regex_pattern, digit_mode=digit_mode)
+        self.regex_pattern = self.pre_tokenizer.pattern_str
         self.byte_encoder = bytes_to_unicode()
 
     def train_from_file(

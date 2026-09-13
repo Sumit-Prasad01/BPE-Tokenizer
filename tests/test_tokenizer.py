@@ -85,3 +85,24 @@ def test_tokenizer_serialization_and_hf_interop(trained_tokenizer: Tokenizer, tm
     # Test Hugging Face tokenizers interoperability
     hf_tok = HFTokenizer.from_file(str(paths["tokenizer_json"]))
     assert hf_tok.get_vocab_size() == trained_tokenizer.vocab_size
+
+
+def test_tokenizer_bpe_dropout(trained_tokenizer: Tokenizer):
+    sample = "The python code is this and that."
+
+    # 1. Deterministic behavior when p_dropout = 0.0
+    ids_standard = trained_tokenizer.encode(sample, p_dropout=0.0)
+    assert ids_standard == trained_tokenizer.encode(sample, p_dropout=0.0)
+    assert trained_tokenizer.decode(ids_standard) == sample
+
+    # 2. Losslessness guarantee under BPE-dropout
+    dropout_encodings = set()
+    for _ in range(20):
+        ids_dropout = trained_tokenizer.encode(sample, p_dropout=0.5)
+        # Even with stochastic subword splits, decoding must ALWAYS be 100% lossless
+        assert trained_tokenizer.decode(ids_dropout) == sample
+        dropout_encodings.add(tuple(ids_dropout))
+
+    # Multiple distinct subword segmentations should be observed when p_dropout > 0
+    assert len(dropout_encodings) > 1, "BPE-dropout should yield multiple alternative segmentations"
+
