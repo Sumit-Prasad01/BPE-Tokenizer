@@ -179,7 +179,7 @@ pip install -e .
 
 ## 💻 CLI Quickstart
 
-The project provides a unified CLI via [`main.py`](file:///C:/Users/sumit/OneDrive/Desktop/Code_PlayGround/LLM_Engineering/BPE-Tokenizer/main.py):
+The project provides a unified CLI via [`main.py`](main.py):
 
 ```bash
 # 1. Download and assemble 250MB training corpus & 5MB held-out evaluation corpus
@@ -263,7 +263,7 @@ A lightweight Causal Transformer (nanoGPT-style, 6 layers, 6 heads, 384 embeddin
 
 ## 📈 Publication-Grade Visualizations
 
-The visualizer ([`src/evaluation/visualizer.py`](file:///C:/Users/sumit/OneDrive/Desktop/Code_PlayGround/LLM_Engineering/BPE-Tokenizer/src/evaluation/visualizer.py)) produces publication-ready charts (PNG at 300 DPI and vector SVG):
+The visualizer ([`src/evaluation/visualizer.py`](src/evaluation/visualizer.py)) produces publication-ready charts (PNG at 300 DPI and vector SVG):
 
 1. **`zipf_law_token_rank.png`**: Log-log plot of token rank vs. occurrence frequency demonstrating Zipf's Law.
 2. **`merge_frequency_decay.png`**: Merge step vs. pair frequency illustrating the power-law decline of merge utility.
