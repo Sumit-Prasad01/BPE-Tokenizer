@@ -232,6 +232,7 @@ class BPEInferenceEngine:
         truncation: bool = False,
         pad_to_multiple_of: int | None = None,
         stride: int = 0,
+        allowed_special: set[str] | str = "all",
         return_tensors: str | None = None,
         p_dropout: float = 0.0,
     ) -> Any:
@@ -257,7 +258,7 @@ class BPEInferenceEngine:
         # 1. Encode all texts to raw token ID lists
         all_token_ids: list[list[int]] = []
         for t in raw_texts:
-            tokens = self._encode_single(t, p_dropout=p_dropout)
+            tokens = self._encode_single(t, allowed_special=allowed_special, p_dropout=p_dropout)
             if stride > 0 and max_length and len(tokens) > max_length:
                 # Sliding-window chunking
                 step = max_length - stride
@@ -327,7 +328,12 @@ class BPEInferenceEngine:
                 "attention_mask": attention_masks,
             }
 
-    def _encode_single(self, text: str, p_dropout: float = 0.0) -> list[int]:
+    def _encode_single(
+        self,
+        text: str,
+        allowed_special: set[str] | str = "all",
+        p_dropout: float = 0.0,
+    ) -> list[int]:
         """Encode single text using active C-ABI, C++ binary, or Python engine."""
         # 1. In-process C-ABI DLL
         if self.cpp_lib and self.cpp_handle:
@@ -339,7 +345,7 @@ class BPEInferenceEngine:
                 return list(out_arr[:n])
 
         # 2. Python engine fallback (with LRU cache)
-        return self.tokenizer.encode(text, p_dropout=p_dropout)
+        return self.tokenizer.encode(text, allowed_special=allowed_special, p_dropout=p_dropout)
 
     def decode(
         self,

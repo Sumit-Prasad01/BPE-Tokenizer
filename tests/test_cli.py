@@ -110,3 +110,22 @@ def test_cli_train_and_evaluate_e2e(cli_sample_data: tuple[Path, Path, Path]):
     ])
     ret_hub = cmd_push_to_hub(hub_args)
     assert ret_hub == 0
+
+    # 6. Run test-real-world
+    from main import cmd_test_real_world, cmd_benchmark_inference
+    stress_args = parser.parse_args([
+        "test-real-world",
+        "--model", str(latest_run),
+    ])
+    ret_stress = cmd_test_real_world(stress_args)
+    assert ret_stress == 0
+
+    # 7. Run benchmark-inference (python mode on train corpus)
+    bench_args = parser.parse_args([
+        "benchmark-inference",
+        "--model", str(latest_run),
+        "--corpus", str(corpus_file),
+        "--mode", "python",
+    ])
+    ret_bench = cmd_benchmark_inference(bench_args)
+    assert ret_bench == 0

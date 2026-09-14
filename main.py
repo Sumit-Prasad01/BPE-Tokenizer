@@ -444,6 +444,87 @@ def cmd_push_to_hub(args: argparse.Namespace) -> int:
     return 0 if success else 1
 
 
+def cmd_interactive(args: argparse.Namespace) -> int:
+    """Launch interactive terminal playground REPL."""
+    from src.inference.interactive_cli import launch_interactive_repl
+    model_path = Path(args.model)
+    if not model_path.exists():
+        logger.error(f"Model directory not found: {model_path}")
+        return 1
+    launch_interactive_repl(model_path, p_dropout=args.dropout)
+    return 0
+
+
+def cmd_test_real_world(args: argparse.Namespace) -> int:
+    """Run 55-case dirty data stress testing suite."""
+    from src.inference.real_world_tester import run_stress_suite
+    model_path = Path(args.model)
+    if not model_path.exists():
+        logger.error(f"Model directory not found: {model_path}")
+        return 1
+    results, summary = run_stress_suite(model_path, verbose=True)
+    if args.output:
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        save_json(summary, out_path)
+        logger.info(f"💾 Saved stress testing summary to {out_path}")
+    return 0 if summary["failures_count"] == 0 else 1
+
+
+def cmd_benchmark_inference(args: argparse.Namespace) -> int:
+    """Benchmark raw inference throughput (C++ standalone vs Python)."""
+    import subprocess
+    import time
+    from src.inference.engine import BPEInferenceEngine
+
+    model_path = Path(args.model)
+    corpus_path = Path(args.corpus)
+    if not model_path.exists():
+        logger.error(f"Model directory not found: {model_path}")
+        return 1
+    if not corpus_path.exists():
+        logger.error(f"Corpus file not found: {corpus_path}")
+        return 1
+
+    logger.info(f"⚡ Benchmarking Inference Throughput on {corpus_path.name} ({corpus_path.stat().st_size / 1024 / 1024:.2f} MB)...")
+
+    # 1. Native C++ Executable Benchmark
+    project_root = Path(__file__).resolve().parent
+    exe_path = project_root / "bpe_engine.exe"
+    vocab_path = model_path / "vocab.json"
+    merges_path = model_path / "merges.txt"
+
+    if exe_path.exists() and vocab_path.exists() and merges_path.exists() and args.mode in ("cpp", "both"):
+        logger.info(f"\n--- [1] Native C++ Executable Benchmark ({args.threads} threads) ---")
+        cmd = [
+            str(exe_path),
+            "--vocab", str(vocab_path),
+            "--merges", str(merges_path),
+            "--benchmark", str(corpus_path),
+            "--threads", str(args.threads),
+        ]
+        subprocess.run(cmd)
+
+    # 2. Python Engine Benchmark
+    if args.mode in ("python", "both"):
+        logger.info(f"\n--- [2] Python Engine Benchmark (single-threaded with LRU cache) ---")
+        engine = BPEInferenceEngine.from_pretrained(model_path)
+        with open(corpus_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [l.strip() for l in f if l.strip()][:10000]
+        t0 = time.perf_counter()
+        total_toks = 0
+        for line in lines:
+            toks = engine.encode(line)
+            total_toks += len(toks)
+        t1 = time.perf_counter()
+        dur = t1 - t0
+        bytes_proc = sum(len(l.encode("utf-8")) for l in lines)
+        logger.info(f"Processed {len(lines):,} lines ({total_toks:,} tokens) in {dur:.3f} s")
+        logger.info(f"⚡ Throughput: {total_toks / dur:,.1f} tokens/sec ({bytes_proc / 1024 / 1024 / dur:.2f} MB/s)")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Constructs the top-level argument parser and subcommands."""
     parser = argparse.ArgumentParser(
@@ -513,6 +594,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_hub.add_argument("--private", action="store_true", help="Create private repository")
     p_hub.add_argument("--dry-run", action="store_true", help="Perform local staging and verification only")
     p_hub.set_defaults(func=cmd_push_to_hub)
+
+    # 9. interactive
+    p_inter = subparsers.add_parser("interactive", help="Launch interactive terminal visualizer REPL")
+    p_inter.add_argument("--model", default="experiments/runs/20260914_023959_exp_vocab_64k", help="Directory containing saved tokenizer artifacts")
+    p_inter.add_argument("--dropout", type=float, default=0.0, help="Default BPE-Dropout probability [0.0, 1.0)")
+    p_inter.set_defaults(func=cmd_interactive)
+
+    # 10. test-real-world
+    p_stress = subparsers.add_parser("test-real-world", help="Run 55-case adversarial dirty data stress testing suite")
+    p_stress.add_argument("--model", default="experiments/runs/20260914_023959_exp_vocab_64k", help="Directory containing saved tokenizer artifacts")
+    p_stress.add_argument("--output", default=None, help="Optional destination path for summary JSON")
+    p_stress.set_defaults(func=cmd_test_real_world)
+
+    # 11. benchmark-inference
+    p_bench = subparsers.add_parser("benchmark-inference", help="Benchmark raw tokenizer inference throughput")
+    p_bench.add_argument("--model", default="experiments/runs/20260914_023959_exp_vocab_64k", help="Directory containing saved tokenizer artifacts")
+    p_bench.add_argument("--corpus", default="data/processed/eval_corpus_heldout.txt", help="Path to text corpus file for throughput benchmark")
+    p_bench.add_argument("--threads", type=int, default=4, help="Number of worker threads")
+    p_bench.add_argument("--mode", choices=["cpp", "python", "both"], default="both", help="Execution engine to benchmark")
+    p_bench.set_defaults(func=cmd_benchmark_inference)
 
     return parser
 
