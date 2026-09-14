@@ -151,6 +151,6 @@ INFERENCE_ENGINE_PLAN.md
 EXPERIMENTATION_PLAN.md
 general_purpose_tokenizer_dataset_plan.md
 implementation_plan.md
-# experiments/
+experiments/
 data/
 *.svg

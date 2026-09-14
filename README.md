@@ -5,9 +5,7 @@
 [![Vocabulary Size](https://img.shields.io/badge/Vocabulary-16k%20%7C%2032k%20%7C%2064k-indigo.svg)](#-target-specifications)
 [![Lossless Fidelity](https://img.shields.io/badge/Roundtrip-100%25%20Lossless-success.svg)](#-target-specifications)
 [![UNK Rate](https://img.shields.io/badge/UNK%20Rate-0.00%25-brightgreen.svg)](#-target-specifications)
-[![Tests Passing](https://img.shields.io/badge/Tests-44%2F44%20Passed-brightgreen.svg)](#-testing--quality-assurance)
 [![Hugging Face Ecosystem](https://img.shields.io/badge/Ecosystem-HF%20AutoTokenizer-orange.svg)](#-hugging-face-hub-integration)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A **production-grade, general-purpose Byte-Level Byte Pair Encoding (BPE) Tokenizer and Research Platform** engineered from first principles in C++ and Python for modern generative language models.
 
@@ -446,17 +444,24 @@ Exported tokenizers are 100% compatible with Hugging Face `transformers` and Rus
 ```python
 from transformers import AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("<username>/bpe-tokenizer-64k")
-text = "Byte-Level BPE ensures lossless roundtrips and zero UNK!"
+tokenizer = AutoTokenizer.from_pretrained("ZyroGod/exp-vocab-64k")
+
+text = "def calculate_loss(predictions: torch.Tensor) -> float:\n    return float(loss.item())"
 tokens = tokenizer.encode(text)
-print("Decoded:", tokenizer.decode(tokens))
+print("Encoded token IDs:", tokens)
+
+decoded = tokenizer.decode(tokens)
+print("Decoded text:", decoded)
+assert decoded == text, "Roundtrip must be 100% lossless!"
 ```
 
 To publish your trained model:
 ```bash
-python main.py push-to-hub --model experiments/runs/20260914_023959_exp_vocab_64k --repo-id <username>/<model_name> --token <hf_token>
+python push_to_hf.py --hf_username <your_hf_username> --which_tokenizer_to_push exp_vocab_64k
 ```
-
+```bash
+python push_to_hf.py --hf_username <your_hf_username> --which_tokenizer_to_push best
+```
 ---
 
 ## 🧪 Testing & Quality Assurance
@@ -492,5 +497,3 @@ The test suite validates 44 automated test targets:
 
 ---
 
-## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -39,49 +39,120 @@ except ImportError:
     console = None
 
 
-def load_env_file(env_path: str | Path = ".env") -> dict[str, str]:
-    """Loads environment variables from a .env file without requiring external libraries."""
-    env_file = Path(env_path)
+def load_env_file(env_path: str | Path | None = None) -> dict[str, str]:
+    """Loads environment variables from a .env file without requiring external libraries.
+    
+    Searches current working directory, script directory, and parent directory.
+    Handles UTF-8 BOM, whitespace around '=', 'export' keywords, quotes, and inline comments.
+    """
     loaded: dict[str, str] = {}
 
-    # Check specified path or look at script directory
-    if not env_file.is_file():
-        alt_path = Path(__file__).resolve().parent / ".env"
-        if alt_path.is_file():
-            env_file = alt_path
-        else:
-            return loaded
+    candidates: list[Path] = []
+    if env_path is not None:
+        candidates.append(Path(env_path))
+    candidates.extend([
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parent / ".env",
+        Path(__file__).resolve().parent.parent / ".env",
+    ])
+
+    env_file: Path | None = None
+    for cand in candidates:
+        if cand.is_file():
+            env_file = cand.resolve()
+            break
+
+    if env_file is None:
+        return loaded
 
     try:
-        with open(env_file, "r", encoding="utf-8", errors="replace") as f:
+        # utf-8-sig automatically strips any UTF-8 BOM if present
+        with open(env_file, "r", encoding="utf-8-sig", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
+                # Strip leading 'export ' if present
+                if line.startswith("export "):
+                    line = line[len("export "):].strip()
                 if "=" in line:
                     key, val = line.split("=", 1)
                     key = key.strip()
-                    val = val.strip().strip("'\"")
-                    if key and key not in os.environ:
-                        os.environ[key] = val
-                    loaded[key] = val
-        if "HF_TOKEN" in loaded:
-            logger.info(f"🔑 Loaded HF_TOKEN from {env_file.resolve()}")
+                    val = val.strip()
+
+                    # Strip enclosing quotes
+                    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                        val = val[1:-1].strip()
+                    elif " #" in val:
+                        # Strip inline comment if not inside quotes
+                        val = val.split(" #", 1)[0].strip()
+
+                    if key:
+                        # Populate into os.environ if missing or currently empty
+                        if not os.environ.get(key):
+                            os.environ[key] = val
+                        loaded[key] = val
+
+        hf_keys = ["HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN"]
+        matched_key = next((k for k in hf_keys if k in loaded and loaded[k]), None)
+        if matched_key:
+            token_val = loaded[matched_key]
+            masked = f"{token_val[:5]}...{token_val[-4:]}" if len(token_val) > 9 else "***"
+            logger.info(f"🔑 Successfully loaded {matched_key} ({masked}) from {env_file}")
+
     except Exception as e:
-        logger.warning(f"Failed to parse .env file: {e}")
+        logger.warning(f"Failed to parse .env file ({env_file}): {e}")
 
     return loaded
 
 
+# Automatically load .env at module import
+_ENV_LOADED = load_env_file()
+
+
+def get_hf_token(cli_token: str | None = None) -> str | None:
+    """Resolves Hugging Face write token from CLI override, .env, environment, or hub cache."""
+    # 1. Direct CLI argument override
+    if cli_token and cli_token.strip():
+        return cli_token.strip()
+
+    # 2. Ensure .env is loaded
+    load_env_file()
+
+    # 3. Check environment variables
+    for var_name in ("HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        env_val = os.environ.get(var_name)
+        if env_val and env_val.strip():
+            return env_val.strip()
+
+    # 4. Check cached token in ~/.cache/huggingface/token
+    try:
+        cached = get_token()
+        if cached and cached.strip():
+            return cached.strip()
+    except Exception:
+        pass
+
+    return None
+
+
 def find_available_runs(runs_dir: Path) -> list[Path]:
-    """Returns a list of directories in runs_dir containing tokenizer artifacts."""
-    if not runs_dir.is_dir():
-        return []
-    valid_runs = []
-    for item in sorted(runs_dir.iterdir()):
-        if item.is_dir():
-            if (item / "vocab.json").is_file() and (item / "merges.txt").is_file():
-                valid_runs.append(item)
+    """Returns a list of directories containing tokenizer artifacts, checking runs_dir and logs/runs."""
+    search_dirs = [runs_dir]
+    alt_runs = Path(__file__).resolve().parent / "logs" / "runs"
+    if alt_runs.is_dir() and alt_runs.resolve() != runs_dir.resolve():
+        search_dirs.append(alt_runs)
+
+    valid_runs: list[Path] = []
+    seen_names: set[str] = set()
+    for s_dir in search_dirs:
+        if not s_dir.is_dir():
+            continue
+        for item in sorted(s_dir.iterdir()):
+            if item.is_dir() and item.name not in seen_names:
+                if (item / "vocab.json").is_file() and (item / "merges.txt").is_file():
+                    valid_runs.append(item)
+                    seen_names.add(item.name)
     return valid_runs
 
 
@@ -220,16 +291,13 @@ def main() -> int:
         metrics_file = model_dir / "metrics.json"
         metrics = load_json(metrics_file) if metrics_file.is_file() else None
 
-        # 6. Resolve authentication token (CLI flag -> .env / environment -> cached token)
-        token = (
-            args.hf_token
-            or os.environ.get("HF_TOKEN")
-            or os.environ.get("HUGGINGFACE_HUB_TOKEN")
-            or os.environ.get("HUGGING_FACE_HUB_TOKEN")
-            or get_token()
-        )
+        # 6. Resolve authentication token (CLI flag -> .env -> environment -> cached token)
+        token = get_hf_token(args.hf_token)
 
-        if not args.dry_run and not token:
+        if token:
+            masked = f"{token[:5]}...{token[-4:]}" if len(token) > 9 else "***"
+            logger.info(f"🔐 Authenticated for Hugging Face Hub ({masked})")
+        elif not args.dry_run:
             logger.warning("No Hugging Face token found in .env, environment, or arguments.")
             try:
                 entered = getpass.getpass("Enter your Hugging Face write token (or press Ctrl+C to cancel): ").strip()
